@@ -1,0 +1,12 @@
+services:
+  nexterm:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      - ./server:/app/server
+      - ./client:/app/client
+      - /app/node_modules
+    ports:
+      - "3000:3000"
+    command: npm run dev
