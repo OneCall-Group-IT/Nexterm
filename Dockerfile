@@ -1,7 +1,11 @@
+###############################################
+# CLIENT BUILDER
+###############################################
 FROM node:22-alpine AS client-builder
 
 WORKDIR /app
 
+# Guacamole JS client lib
 COPY vendor/guacamole-client/guacamole-common-js/ ./vendor/guacamole-client/guacamole-common-js/
 
 WORKDIR /app/client
@@ -12,6 +16,11 @@ RUN for i in 1 2 3; do yarn install --frozen-lockfile --network-timeout 500000 &
 COPY client/ .
 RUN yarn build
 
+
+
+###############################################
+# SERVER BUILDER
+###############################################
 FROM node:22-alpine AS server-builder
 
 ARG VERSION
@@ -24,13 +33,20 @@ RUN apk add --no-cache \
     jq
 
 COPY package.json yarn.lock ./
+
 RUN if [ -n "$VERSION" ]; then \
         jq --arg v "$VERSION" '.version = $v' package.json > tmp.json && mv tmp.json package.json; \
     fi
+
 RUN for i in 1 2 3; do yarn install --production --frozen-lockfile --network-timeout 500000 && break || sleep 15; done
 
 COPY server/ server/
 
+
+
+###############################################
+# GUACD BUILDER (Guacamole server)
+###############################################
 FROM node:22-alpine AS guacd-builder
 
 RUN apk add --no-cache \
@@ -46,15 +62,24 @@ COPY vendor/guacamole-server/ ./guacamole-server/
 
 RUN cd guacamole-server \
     && autoreconf -fi \
-    && ./configure --with-init-dir=/etc/init.d --prefix=/usr/local --disable-guacenc --disable-guaclog \
-    && make -j$(nproc) \
-    && make DESTDIR=/install install \
-    && rm -rf /install/usr/local/include \
-    && rm -f /install/usr/local/lib/*.a \
-    && rm -f /install/usr/local/lib/*.la \
-    && rm -f /install/usr/local/*.md /install/usr/local/LICENSE \
-    && strip /install/usr/local/sbin/guacd /install/usr/local/lib/*.so.* 2>/dev/null || true
+    && ./configure \
+        --with-init-dir=/etc/init.d \
+        --prefix=/usr/local \
+        --disable-guacenc \
+        --disable-guaclog \
+    && make -j"$(nproc)" \
+    && make install \
+    && rm -rf /usr/local/include \
+    && rm -f /usr/local/lib/*.a \
+    && rm -f /usr/local/lib/*.la \
+    && rm -f /usr/local/*.md /usr/local/LICENSE \
+    && strip /usr/local/sbin/guacd /usr/local/lib/*.so.* 2>/dev/null || true
 
+
+
+###############################################
+# FINAL RUNTIME IMAGE
+###############################################
 FROM node:22-alpine
 
 RUN apk add --no-cache \
@@ -64,9 +89,8 @@ RUN apk add --no-cache \
     ffmpeg-libavcodec ffmpeg-libavformat ffmpeg-libavutil ffmpeg-libswscale \
     util-linux samba-client
 
-COPY --from=guacd-builder /install/usr/local/sbin/ /usr/local/sbin/
-COPY --from=guacd-builder /install/usr/local/lib/ /usr/local/lib/
-COPY --from=guacd-builder /install/usr/lib/freerdp2/ /usr/lib/freerdp2/
+# Copy everything Guacamole installed under /usr/local from the builder
+COPY --from=guacd-builder /usr/local/ /usr/local/
 
 RUN ldconfig /usr/local/lib 2>/dev/null || true
 
@@ -83,7 +107,6 @@ COPY --from=server-builder /app/package.json ./
 COPY --from=server-builder /app/yarn.lock ./
 
 COPY docker-start.sh .
-
 RUN chmod +x docker-start.sh
 
 EXPOSE 6989
