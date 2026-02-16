@@ -18,8 +18,12 @@ import { isTauri } from "@/common/utils/TauriUtil.js";
 import { getTabId, getBrowserId } from "@/common/utils/ConnectionUtil.js";
 import { postRequest, deleteRequest } from "@/common/utils/RequestUtil";
 
+// ✅ File transfer panel
+import FileTransferPanel from "@/common/components/FileTransferPanel";
+
 export const Servers = () => {
 
+    // Dialog / UI state
     const [serverDialogOpen, setServerDialogOpen] = useState(false);
     const [serverDialogProtocol, setServerDialogProtocol] = useState(null);
     const [proxmoxDialogOpen, setProxmoxDialogOpen] = useState(false);
@@ -34,6 +38,7 @@ export const Servers = () => {
     const [currentFolderId, setCurrentFolderId] = useState(null);
     const [currentOrganizationId, setCurrentOrganizationId] = useState(null);
     const [editServerId, setEditServerId] = useState(null);
+
     const { activeSessions, setActiveSessions, activeSessionId, setActiveSessionId, poppedOutSessions } = useActiveSessions();
     const { getServerById, servers } = useContext(ServerContext);
     const { registerHandler } = useContext(StateStreamContext);
@@ -45,10 +50,16 @@ export const Servers = () => {
 
     const visibleSessions = activeSessions.filter(s => !poppedOutSessions.includes(s.id));
 
+    // ✅ Choose which session FileTransferPanel should use
+    const activeSessionForPanel =
+        visibleSessions.find(s => s.id === activeSessionId) ||
+        visibleSessions[visibleSessions.length - 1] ||
+        null;
+
     useEffect(() => {
         const handleToggle = () => setMobileServerListOpen(prev => !prev);
-        window.addEventListener('toggleServerList', handleToggle);
-        return () => window.removeEventListener('toggleServerList', handleToggle);
+        window.addEventListener("toggleServerList", handleToggle);
+        return () => window.removeEventListener("toggleServerList", handleToggle);
     }, []);
 
     const handleConnectionsUpdate = useCallback((sessions) => {
@@ -75,23 +86,31 @@ export const Servers = () => {
         const closingSessions = closingSessionsRef.current;
         const activeMapped = mappedSessions.filter(s => !s.isHibernated && !closingSessions.has(s.id));
         const hibernatedMapped = mappedSessions.filter(s => s.isHibernated);
-        
+
         const serverSessionIds = new Set(sessions.map(s => s.sessionId));
         closingSessions.forEach(id => {
             if (!serverSessionIds.has(id)) {
                 closingSessions.delete(id);
             }
         });
-        
+
         const newActiveIds = new Set(activeMapped.map(s => s.id));
 
         setActiveSessions(prev => {
             const prevMap = new Map(prev.map(s => [s.id, s]));
             return activeMapped.map(newSession => {
                 const existing = prevMap.get(newSession.id);
-                return existing ? { ...newSession, scriptId: existing.scriptId || newSession.scriptId, scriptName: existing.scriptName, osName: newSession.osName || existing.osName } : newSession;
+                return existing
+                    ? {
+                        ...newSession,
+                        scriptId: existing.scriptId || newSession.scriptId,
+                        scriptName: existing.scriptName,
+                        osName: newSession.osName || existing.osName
+                    }
+                    : newSession;
             });
         });
+
         setHibernatedSessions(hibernatedMapped);
 
         setActiveSessionId(prev => {
@@ -123,7 +142,6 @@ export const Servers = () => {
 
     const checkConnectionReasonRequired = (serverId, servers) => {
         if (!servers || !serverId) return false;
-
         return findOrganizationForServer(parseInt(serverId), servers)?.requireConnectionReason || false;
     };
 
@@ -172,6 +190,7 @@ export const Servers = () => {
 
             if (directIdentity) payload.directIdentity = directIdentity;
             if (scriptId) payload.scriptId = scriptId;
+
             const session = await postRequest("/connections", payload);
 
             const organization = findOrganizationForServer(server.id, servers);
@@ -203,7 +222,7 @@ export const Servers = () => {
         }
 
         const identity = { id: identityId };
-        
+
         const requiresReason = checkConnectionReasonRequired(serverId, servers);
         if (requiresReason) {
             setPendingConnection({ server, identity, scriptId });
@@ -432,16 +451,27 @@ export const Servers = () => {
 
     return (
         <div className="server-page">
-            <ServerDialog open={serverDialogOpen} onClose={closeDialog} currentFolderId={currentFolderId}
-                          currentOrganizationId={currentOrganizationId} editServerId={editServerId}
-                          initialProtocol={serverDialogProtocol} />
-            <ProxmoxDialog open={proxmoxDialogOpen} onClose={closePVEDialog}
-                           currentFolderId={currentFolderId}
-                           currentOrganizationId={currentOrganizationId}
-                           editServerId={editServerId} />
-            <SSHConfigImportDialog open={sshConfigImportDialogOpen} onClose={closeSSHConfigImportDialog}
-                                   currentFolderId={currentFolderId}
-                                   currentOrganizationId={currentOrganizationId} />
+            <ServerDialog
+                open={serverDialogOpen}
+                onClose={closeDialog}
+                currentFolderId={currentFolderId}
+                currentOrganizationId={currentOrganizationId}
+                editServerId={editServerId}
+                initialProtocol={serverDialogProtocol}
+            />
+            <ProxmoxDialog
+                open={proxmoxDialogOpen}
+                onClose={closePVEDialog}
+                currentFolderId={currentFolderId}
+                currentOrganizationId={currentOrganizationId}
+                editServerId={editServerId}
+            />
+            <SSHConfigImportDialog
+                open={sshConfigImportDialogOpen}
+                onClose={closeSSHConfigImportDialog}
+                currentFolderId={currentFolderId}
+                currentOrganizationId={currentOrganizationId}
+            />
             <DirectConnectDialog
                 open={directConnectDialogOpen}
                 onClose={closeDirectConnectDialog}
@@ -454,19 +484,26 @@ export const Servers = () => {
                 onConnect={handleConnectionReasonProvided}
                 serverName={pendingConnection?.server?.name || "Unknown Server"}
             />
-            <ServerList setServerDialogOpen={(protocol = null) => {
-                setServerDialogProtocol(protocol);
-                setServerDialogOpen(true);
-            }}
-                        connectToServer={connectToServer}
-                        setProxmoxDialogOpen={() => setProxmoxDialogOpen(true)}
-                        setSSHConfigImportDialogOpen={() => setSSHConfigImportDialogOpen(true)}
-                        setCurrentFolderId={setCurrentFolderId} setCurrentOrganizationId={setCurrentOrganizationId}
-                        setEditServerId={setEditServerId} openSFTP={openSFTP}
-                        hibernatedSessions={hibernatedSessions} resumeSession={resumeConnection}
-                        openDirectConnect={openDirectConnect} runScript={runScript}
-                        openPortForward={isTauri() ? openPortForward : undefined}
-                        mobileOpen={mobileServerListOpen} setMobileOpen={setMobileServerListOpen} />
+            <ServerList
+                setServerDialogOpen={(protocol = null) => {
+                    setServerDialogProtocol(protocol);
+                    setServerDialogOpen(true);
+                }}
+                connectToServer={connectToServer}
+                setProxmoxDialogOpen={() => setProxmoxDialogOpen(true)}
+                setSSHConfigImportDialogOpen={() => setSSHConfigImportDialogOpen(true)}
+                setCurrentFolderId={setCurrentFolderId}
+                setCurrentOrganizationId={setCurrentOrganizationId}
+                setEditServerId={setEditServerId}
+                openSFTP={openSFTP}
+                hibernatedSessions={hibernatedSessions}
+                resumeSession={resumeConnection}
+                openDirectConnect={openDirectConnect}
+                runScript={runScript}
+                openPortForward={isTauri() ? openPortForward : undefined}
+                mobileOpen={mobileServerListOpen}
+                setMobileOpen={setMobileServerListOpen}
+            />
             {visibleSessions.length === 0 && 
                 <WelcomePanel 
                     connectToServer={connectToServer} 
@@ -476,13 +513,26 @@ export const Servers = () => {
                     openDirectConnect={openDirectConnect}
                 />
             }
-            {visibleSessions.length > 0 &&
-                <ViewContainer activeSessions={visibleSessions} disconnectFromServer={disconnectFromServer}
-                               closeSession={closeSession}
-                               activeSessionId={activeSessionId} setActiveSessionId={setActiveSessionId}
-                               hibernateSession={hibernateSession} duplicateSession={duplicateSession}
-                               setOpenFileEditors={setOpenFileEditors}
-                               openTerminalFromFileManager={openTerminalFromFileManager} />}
+            {visibleSessions.length > 0 && (
+                <>
+                    <ViewContainer
+                        activeSessions={visibleSessions}
+                        disconnectFromServer={disconnectFromServer}
+                        closeSession={closeSession}
+                        activeSessionId={activeSessionId}
+                        setActiveSessionId={setActiveSessionId}
+                        hibernateSession={hibernateSession}
+                        duplicateSession={duplicateSession}
+                        setOpenFileEditors={setOpenFileEditors}
+                        openTerminalFromFileManager={openTerminalFromFileManager}
+                    />
+
+                    {/* ✅ File Transfer Panel for the active session's server */}
+                    {activeSessionForPanel && (
+                        <FileTransferPanel serverId={String(activeSessionForPanel.server.id)} />
+                    )}
+                </>
+            )}
             {openFileEditors.map((editor, index) => (
                 editor.type === "preview" ? (
                     <FilePreviewWindow
